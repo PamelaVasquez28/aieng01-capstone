@@ -1,0 +1,3 @@
+anthropic[bedrock]>=0.69
+claude-agent-sdk>=0.2.160  # paso 5: la misma orquestación con agents= del SDK
+python-dotenv>=1.0

@@ -1,0 +1,21 @@
+{
+  "movimientos": {
+    "laura.gomez": [
+      {"id": "M-5101", "fecha": "2026-09-03", "tipo": "cargo", "concepto": "Mensualidad plan Pro", "monto_cop": 19900},
+      {"id": "M-5102", "fecha": "2026-09-03", "tipo": "cargo", "concepto": "Mensualidad plan Pro", "monto_cop": 19900},
+      {"id": "M-5140", "fecha": "2026-09-30", "tipo": "transferencia", "concepto": "Arriendo octubre a Inmobiliaria Sabana (destinatario nuevo)", "monto_cop": 1850000, "estado": "retenida", "motivo": "verificación antifraude", "retenida_desde": "2026-09-30T19:12"},
+      {"id": "M-5141", "fecha": "2026-10-01", "tipo": "transferencia", "concepto": "Pago a Proveedora Andina", "monto_cop": 320000, "estado": "completada"}
+    ],
+    "carlos.ruiz": [
+      {"id": "M-6201", "fecha": "2026-09-12", "tipo": "cargo", "concepto": "Mensualidad plan Pro", "monto_cop": 19900}
+    ]
+  },
+  "casos": {
+    "laura.gomez": [
+      {"id": "CASE-1001", "asunto": "Doble cobro mensualidad plan Pro", "estado": "abierto", "prioridad": "alta", "abierto_el": "2026-09-27"}
+    ],
+    "carlos.ruiz": [
+      {"id": "CASE-1002", "asunto": "No llega transferencia 84512", "estado": "en_proceso", "prioridad": "media", "abierto_el": "2026-09-20"}
+    ]
+  }
+}

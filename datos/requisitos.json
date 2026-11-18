@@ -1,0 +1,16 @@
+{
+  "consumo": [
+    "factura_comercial",
+    "documento_transporte",
+    "lista_empaque",
+    "dav",
+    "certificado_origen"
+  ],
+  "temporal": [
+    "factura_comercial",
+    "documento_transporte",
+    "lista_empaque",
+    "dav",
+    "poliza_garantia"
+  ]
+}

@@ -1,0 +1,86 @@
+{
+  "26-0001": {
+    "numero": "26-0001",
+    "importador": "Importadora Ficticia Uno SAS",
+    "modalidad": "consumo",
+    "valor_factura_usd": 5000.00,
+    "valor_dav_usd": 5000.00,
+    "documentos": [
+      {"tipo": "factura_comercial", "numero": "INV-2024-001", "estado": "cargado"},
+      {"tipo": "documento_transporte", "numero": "BL-2024-5001", "estado": "cargado"},
+      {"tipo": "lista_empaque", "numero": "PL-2024-001", "estado": "cargado"},
+      {"tipo": "dav", "numero": "DAV-2024-001", "estado": "cargado"},
+      {"tipo": "certificado_origen", "numero": "CO-2024-001", "estado": "cargado"}
+    ]
+  },
+  "26-0002": {
+    "numero": "26-0002",
+    "importador": "Comercializadora Demo Dos SAS",
+    "modalidad": "consumo",
+    "valor_factura_usd": 3200.00,
+    "valor_dav_usd": 3200.00,
+    "documentos": [
+      {"tipo": "factura_comercial", "numero": "INV-2024-002", "estado": "cargado"},
+      {"tipo": "documento_transporte", "numero": "BL-2024-5002", "estado": "cargado"},
+      {"tipo": "lista_empaque", "numero": "PL-2024-002", "estado": "cargado"},
+      {"tipo": "dav", "numero": "DAV-2024-002", "estado": "pendiente"},
+      {"tipo": "certificado_origen", "numero": "CO-2024-002", "estado": "cargado"}
+    ]
+  },
+  "26-0003": {
+    "numero": "26-0003",
+    "importador": "Proveedora Test Tres LTDA",
+    "modalidad": "consumo",
+    "valor_factura_usd": 7500.00,
+    "valor_dav_usd": 7200.00,
+    "documentos": [
+      {"tipo": "factura_comercial", "numero": "INV-2024-003", "estado": "cargado"},
+      {"tipo": "documento_transporte", "numero": "BL-2024-5003", "estado": "cargado"},
+      {"tipo": "lista_empaque", "numero": "PL-2024-003", "estado": "cargado"},
+      {"tipo": "dav", "numero": "DAV-2024-003", "estado": "cargado"},
+      {"tipo": "certificado_origen", "numero": "CO-2024-003", "estado": "cargado"}
+    ]
+  },
+  "26-0004": {
+    "numero": "26-0004",
+    "importador": "Importador Temporal Cuatro Corp",
+    "modalidad": "temporal",
+    "valor_factura_usd": 2800.00,
+    "valor_dav_usd": 2800.00,
+    "documentos": [
+      {"tipo": "factura_comercial", "numero": "INV-2024-004", "estado": "cargado"},
+      {"tipo": "documento_transporte", "numero": "BL-2024-5004", "estado": "cargado"},
+      {"tipo": "lista_empaque", "numero": "PL-2024-004", "estado": "cargado"},
+      {"tipo": "dav", "numero": "DAV-2024-004", "estado": "cargado"},
+      {"tipo": "poliza_garantia", "numero": "POL-2024-004", "estado": "cargado"}
+    ]
+  },
+  "26-0005": {
+    "numero": "26-0005",
+    "importador": "Sociedad Temporal Cinco SAS",
+    "modalidad": "temporal",
+    "valor_factura_usd": 4100.00,
+    "valor_dav_usd": 4100.00,
+    "documentos": [
+      {"tipo": "factura_comercial", "numero": "INV-2024-005", "estado": "cargado"},
+      {"tipo": "documento_transporte", "numero": "BL-2024-5005", "estado": "cargado"},
+      {"tipo": "lista_empaque", "numero": "PL-2024-005", "estado": "cargado"},
+      {"tipo": "dav", "numero": "DAV-2024-005", "estado": "cargado"},
+      {"tipo": "poliza_garantia", "numero": "POL-2024-005", "estado": "pendiente"}
+    ]
+  },
+  "26-0006": {
+    "numero": "26-0006",
+    "importador": "Comercio Textil Demo Seis LTDA",
+    "modalidad": "consumo",
+    "valor_factura_usd": 6300.00,
+    "valor_dav_usd": 6300.00,
+    "documentos": [
+      {"tipo": "factura_comercial", "numero": "INV-2024-006", "estado": "cargado"},
+      {"tipo": "documento_transporte", "numero": "BL-2024-6006", "estado": "vencido"},
+      {"tipo": "lista_empaque", "numero": "PL-2024-006", "estado": "cargado"},
+      {"tipo": "dav", "numero": "DAV-2024-006", "estado": "cargado"},
+      {"tipo": "certificado_origen", "numero": "CO-2024-006", "estado": "cargado"}
+    ]
+  }
+}

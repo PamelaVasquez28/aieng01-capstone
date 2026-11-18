@@ -1,23 +1,17 @@
 """
-L7 · Paso 3 (y 6): correr el golden set contra el agente y calificar cada caso.
+H3: Evals del revisor de Declaraciones de Origen.
 
 Ejecuta:
-    python evals.py                               # todos los casos, con guardrails
-    python evals.py --sin-guardrails              # el mismo golden set sin guardrails
-    python evals.py --casos g07,g08               # solo algunos casos
-    python evals.py --etiqueta antes              # guarda resultados/antes.json
-    python evals.py --comparar antes despues      # qué casos mejoraron y cuáles empeoraron (regresiones)
-
-Dos clases de calificador, como en «Demystifying evals for AI agents» (Anthropic):
-  - por CÓDIGO: herramientas llamadas, textos que deben o no aparecer, guardrail. Baratos, exactos, sin azar.
-  - por MODELO (juez): una rúbrica en lenguaje natural que un segundo llamado a Claude evalúa como
-    cumple / no cumple, con salida estructurada. Para lo que el código no puede ver («no promete una fecha»).
-Un caso pasa si pasan TODOS sus calificadores.
+    python evals.py                           # todos los casos, con guardrails
+    python evals.py --sin-guardrails          # sin guardrails
+    python evals.py --etiqueta antes          # guarda resultados/antes.json
+    python evals.py --comparar antes despues  # diferencias
 """
 
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import sys
 import time
@@ -33,9 +27,10 @@ JUEZ_SCHEMA = {
     "additionalProperties": False,
 }
 JUEZ_SYSTEM = (
-    "Eres un evaluador estricto de un agente de soporte bancario. Recibes la pregunta del usuario, la respuesta "
-    "del agente y UNA rúbrica. Decide solo si la respuesta cumple la rúbrica; no evalúes estilo ni otras cosas. "
-    "Primero escribe la razón en una o dos frases y después el veredicto."
+    "Eres un evaluador estricto de un revisor de Declaraciones de Origen. "
+    "Recibes la pregunta, la respuesta del agente y UNA rúbrica. "
+    "Decide solo si la respuesta cumple; no evalúes estilo. "
+    "Responde: primero la razón (1-2 frases), luego el veredicto."
 )
 
 
@@ -43,110 +38,184 @@ def cargar_golden(ruta: Path = AQUI / "golden_set.json") -> list[dict]:
     return json.loads(ruta.read_text(encoding="utf-8"))["casos"]
 
 
-# ── Calificadores por código (no llaman al modelo) ────────────────────────────────────────────
-def calificar_codigo(espera: dict, res) -> list[tuple[str, bool, str]]:
-    """Devuelve [(calificador, pasó, detalle)]. `res` es un agente.Resultado (o algo con sus campos)."""
+# ── Calificadores por código ────────────────────────────────────────────────
+def calificar_codigo(espera: dict, resultado: dict) -> list[tuple[str, bool, str]]:
+    """Retorna [(calificador, pasó, detalle)]."""
     salida = []
-    llamadas = [h["nombre"] for h in res.herramientas]
-    resp = res.respuesta.lower()
+    herramientas = resultado.get("herramientas_usadas", [])
+    resp = resultado.get("respuesta", "").lower()
+    bloqueado = resultado.get("rechazado", False)
+
+    # Herramientas requeridas
     for h in espera.get("herramientas", []):
-        salida.append((f"usa {h}", h in llamadas, f"llamó {llamadas}"))
+        h_short = h.replace("mcp__aduana__", "")
+        matches = any(h_short in herr for herr in herramientas)
+        salida.append((f"usa {h_short}", matches, f"llamó {herramientas}"))
+
+    # Herramientas prohibidas
     prohibidas = espera.get("sin_herramientas", [])
     if prohibidas == ["*"]:
-        salida.append(("no usa herramientas", not llamadas, f"llamó {llamadas}"))
+        salida.append(("no usa herramientas", not herramientas, f"llamó {herramientas}"))
     else:
         for h in prohibidas:
-            salida.append((f"no usa {h}", h not in llamadas, f"llamó {llamadas}"))
+            h_short = h.replace("mcp__aduana__", "")
+            matches = any(h_short in herr for herr in herramientas)
+            salida.append((f"no usa {h_short}", not matches, f"llamó {herramientas}"))
+
+    # Texto que debe contener alguno
     if espera.get("contiene_alguno"):
         hay = [t for t in espera["contiene_alguno"] if t.lower() in resp]
-        salida.append(("menciona lo esperado", bool(hay), f"buscó {espera['contiene_alguno']}"))
+        salida.append(("menciona lo esperado", bool(hay), f"buscó {espera['contiene_alguno']}, encontró {hay}"))
+
+    # Texto que no debe contener
     for t in espera.get("no_contiene", []):
-        salida.append((f"no dice «{t}»", t.lower() not in resp, ""))
-    for t in espera.get("no_contiene_en_modelo", []):
-        salida.append((f"el modelo no vio «{t}»", t not in res.entrada_al_modelo, ""))
+        no_tiene = t.lower() not in resp
+        salida.append((f"no dice «{t}»", no_tiene, ""))
+
+    # Guardrail de entrada
     if "bloqueado_entrada" in espera:
-        salida.append(("guardrail de entrada", res.bloqueado_entrada == espera["bloqueado_entrada"], res.motivo_guardrail))
+        debe_bloquear = espera["bloqueado_entrada"]
+        ok = bloqueado == debe_bloquear
+        salida.append(("guardrail entrada", ok, f"bloqueado={bloqueado}, esperaba={debe_bloquear}"))
+
     return salida
 
 
-# ── Calificador por modelo ────────────────────────────────────────────────────────────────────
-def juez(pregunta: str, respuesta: str, rubrica: str, client=None) -> tuple[bool, str, int]:
+# ── Calificador por modelo ────────────────────────────────────────────────
+def juez(pregunta: str, respuesta: str, rubrica: str) -> tuple[bool, str]:
+    """Llama al juez (segunda instancia de Claude)."""
     from claude_client import DEFAULT_MODEL, get_client, model_id
 
-    client = client or get_client()
-    r = client.messages.create(
-        model=model_id(DEFAULT_MODEL), max_tokens=300, system=JUEZ_SYSTEM,
-        output_config={"format": {"type": "json_schema", "schema": JUEZ_SCHEMA}},
-        messages=[{"role": "user", "content": (
-            f"<pregunta>{pregunta}</pregunta>\n<respuesta>{respuesta}</respuesta>\n<rubrica>{rubrica}</rubrica>")}],
-    )
-    v = json.loads(r.content[0].text)
-    return bool(v["cumple"]), v["razon"], r.usage.input_tokens + r.usage.output_tokens
+    try:
+        client = get_client()
+        r = client.messages.create(
+            model=model_id(DEFAULT_MODEL), max_tokens=300, system=JUEZ_SYSTEM,
+            output_config={"format": {"type": "json_schema", "schema": JUEZ_SCHEMA}},
+            messages=[{"role": "user", "content": (
+                f"<pregunta>{pregunta}</pregunta>\n"
+                f"<respuesta>{respuesta}</respuesta>\n"
+                f"<rubrica>{rubrica}</rubrica>")}],
+        )
+        v = json.loads(r.content[0].text)
+        return bool(v["cumple"]), v["razon"]
+    except Exception as e:
+        return False, f"Error en juez: {e}"
+
+
+async def ejecutar_caso(pregunta: str, con_guardrails: bool) -> dict:
+    """Ejecuta un caso a través del adaptador."""
+    from adaptador import ejecutar
+
+    resultado = await ejecutar(pregunta, con_guardrails=con_guardrails)
+    return resultado
 
 
 def correr(casos: list[dict], con_guardrails: bool) -> dict:
-    import herramientas
-    from agente import run_agent
+    """Corre todos los casos y retorna resultados."""
+    print(f"\nGolden set: {len(casos)} casos · guardrails: {'SÍ' if con_guardrails else 'NO'}\n")
 
-    filas, tokens, t0 = [], 0, time.monotonic()
+    filas = []
     for c in casos:
-        herramientas.reiniciar_estado()
-        herramientas.configurar_fallas(c.get("fallas_core", 0))
-        res = run_agent(c["pregunta"], con_guardrails=con_guardrails, verboso=False)
-        herramientas.configurar_fallas(0)
-        checks = calificar_codigo(c.get("espera", {}), res)
-        tokens += res.tokens_entrada + res.tokens_salida
+        caso_id = c["id"]
+        pregunta = c["pregunta"]
+
+        # Ejecuta caso
+        resultado = asyncio.run(ejecutar_caso(pregunta, con_guardrails))
+
+        # Califica por código
+        checks = calificar_codigo(c.get("espera", {}), resultado)
+        pasa_codigo = all(check[1] for check in checks)
+
+        # Califica por juez si hay rúbrica
+        pasa_juez = True
+        juez_result = ""
         if c.get("juez"):
-            ok, razon, tj = juez(c["pregunta"], res.respuesta, c["juez"])
-            checks.append(("juez", ok, razon))
-            tokens += tj
-        paso = all(ok for _, ok, _ in checks)
-        fallas = [f"{n}{': ' + d if d else ''}" for n, ok, d in checks if not ok]
-        print(f"{'✅' if paso else '❌'} {c['id']} · {c['categoria']:<26} "
-              f"{'' if paso else '→ ' + ' | '.join(fallas)[:160]}", flush=True)
-        filas.append({"id": c["id"], "categoria": c["categoria"], "paso": paso, "fallas": fallas,
-                      "respuesta": res.respuesta, "herramientas": [h["nombre"] for h in res.herramientas],
-                      "bloqueado_entrada": res.bloqueado_entrada, "bloqueado_salida": res.bloqueado_salida,
-                      "traza": res.traza})
-    pasaron = sum(f["paso"] for f in filas)
-    return {"guardrails": con_guardrails, "pasaron": pasaron, "total": len(filas), "tokens": tokens,
-            "segundos": round(time.monotonic() - t0, 1), "casos": filas}
+            pasa_juez, juez_result = juez(pregunta, resultado.get("respuesta", ""), c["juez"])
+
+        # Veredicto final
+        pasa = pasa_codigo and pasa_juez
+
+        fila = {
+            "caso": caso_id,
+            "categoria": c.get("categoria", ""),
+            "pasa_codigo": pasa_codigo,
+            "pasa_juez": pasa_juez,
+            "pasa": pasa,
+            "checks": [{"nombre": ch[0], "ok": ch[1], "detalle": ch[2]} for ch in checks],
+            "juez": juez_result,
+            "respuesta": resultado.get("respuesta", "")[:200],  # primeros 200 chars
+            "costo_haiku": resultado.get("costo_haiku_usd", 0),
+        }
+        filas.append(fila)
+
+        # Imprime progreso
+        estado = "✅" if pasa else "❌"
+        print(f"{estado} {caso_id:3} {c.get('categoria', '')[:40]:40} {' / '.join(ch[0] for ch in checks if not ch[1])}")
+
+    # Resumen
+    pasan = sum(1 for f in filas if f["pasa"])
+    print(f"\n{'='*60}")
+    print(f"RESULTADO: {pasan}/{len(casos)} casos pasaron")
+    print(f"Costo total: ${sum(f['costo_haiku'] for f in filas):.6f}")
+    print(f"{'='*60}\n")
+
+    return {
+        "resumen": {"total": len(casos), "pasan": pasan, "pasan_pct": round(100 * pasan / len(casos))},
+        "filas": filas,
+    }
 
 
-def comparar(a: str, b: str) -> None:
-    ra = {c["id"]: c for c in json.loads((DIR_RESULTADOS / f"{a}.json").read_text())["casos"]}
-    rb = {c["id"]: c for c in json.loads((DIR_RESULTADOS / f"{b}.json").read_text())["casos"]}
-    print(f"Comparación {a} → {b}")
-    for cid in sorted(set(ra) | set(rb)):
-        pa, pb = ra.get(cid, {}).get("paso"), rb.get(cid, {}).get("paso")
-        marca = "  =" if pa == pb else ("  ↑ mejora" if pb else "  ↓ REGRESIÓN")
-        print(f"  {cid}: {'✅' if pa else '❌'} → {'✅' if pb else '❌'}{marca if pa != pb else ''}")
-    print(f"Total: {sum(c['paso'] for c in ra.values())}/{len(ra)} → {sum(c['paso'] for c in rb.values())}/{len(rb)}")
+def comparar(antes_json: Path, despues_json: Path) -> None:
+    """Compara dos ejecuciones."""
+    antes = json.loads(antes_json.read_text())["filas"]
+    despues = json.loads(despues_json.read_text())["filas"]
+
+    print(f"\n{'='*60}")
+    print("COMPARACIÓN")
+    print(f"{'='*60}\n")
+
+    mejoras = []
+    regresiones = []
+    for a, d in zip(antes, despues):
+        if a["pasa"] and not d["pasa"]:
+            regresiones.append(a["caso"])
+        elif not a["pasa"] and d["pasa"]:
+            mejoras.append(a["caso"])
+
+    if mejoras:
+        print(f"✅ MEJORAS: {', '.join(mejoras)}")
+    if regresiones:
+        print(f"❌ REGRESIONES: {', '.join(regresiones)}")
+    if not mejoras and not regresiones:
+        print("⏸️  Sin cambios")
+
+    print()
 
 
-def main() -> int:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--sin-guardrails", action="store_true")
-    ap.add_argument("--casos", default="")
-    ap.add_argument("--etiqueta", default="")
-    ap.add_argument("--comparar", nargs=2, metavar=("A", "B"))
-    a = ap.parse_args()
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--sin-guardrails", action="store_true")
+    parser.add_argument("--casos", help="casos a correr (p. ej. g01,g02)")
+    parser.add_argument("--etiqueta", help="guarda resultados/<etiqueta>.json")
+    parser.add_argument("--comparar", nargs=2, help="compara <antes>.json <despues>.json")
+    a = parser.parse_args()
+
     if a.comparar:
-        comparar(*a.comparar)
-        return 0
+        comparar(DIR_RESULTADOS / f"{a.comparar[0]}.json", DIR_RESULTADOS / f"{a.comparar[1]}.json")
+        return
+
     casos = cargar_golden()
     if a.casos:
         ids = set(a.casos.split(","))
         casos = [c for c in casos if c["id"] in ids]
-    print(f"Golden set: {len(casos)} casos · guardrails: {'NO' if a.sin_guardrails else 'sí'}\n")
-    r = correr(casos, con_guardrails=not a.sin_guardrails)
-    costo = r["tokens"] / 1e6 * 1.6  # aprox. Haiku 4.5 con ~85 % de tokens de entrada
-    print(f"\nRESULTADO: {r['pasaron']}/{r['total']} casos pasan · {r['tokens']} tokens (≈ USD {costo:.3f}) · {r['segundos']} s")
+
+    resultados = correr(casos, con_guardrails=not a.sin_guardrails)
+
     if a.etiqueta:
         DIR_RESULTADOS.mkdir(exist_ok=True)
-        (DIR_RESULTADOS / f"{a.etiqueta}.json").write_text(json.dumps(r, ensure_ascii=False, indent=2), encoding="utf-8")
-        print(f"Guardado en resultados/{a.etiqueta}.json")
-    return 0
+        ruta = DIR_RESULTADOS / f"{a.etiqueta}.json"
+        ruta.write_text(json.dumps(resultados, indent=2, ensure_ascii=False))
+        print(f"📁 Guardado en {ruta}")
 
 
 if __name__ == "__main__":

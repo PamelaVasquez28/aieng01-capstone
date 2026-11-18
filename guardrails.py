@@ -2,7 +2,7 @@
 Guardrails de entrada y salida para el revisor de Declaraciones de Origen.
 
 Entrada: detecta inyección de instrucciones y pedidos de datos sensibles.
-Salida: exige LISTO/INCOMPLETO y bloquea NIT/teléfono/correo del importador.
+Salida: exige LISTO/INCOMPLETO o una negativa válida (no existe, no puedo, fuera de alcance); enmascara NIT/teléfono/correo.
 """
 
 import re
@@ -17,9 +17,10 @@ PATRONES_INYECCION = [
     r"fuerza.*listo",
 ]
 
-PATRONES_PII = [
+PATRONES_PII_ENTRADA = [
     r"\bnit\b",
     r"\bteléfono\b",
+    r"\btelefono\b",
     r"\bcorreo\b",
     r"\bemail\b",
 ]
@@ -27,11 +28,20 @@ PATRONES_PII = [
 PATRONES_SALIDA_VALIDA = [
     r"\blisto\b",
     r"\bincompleto\b",
+    r"no existe",
+    r"no encontr",
+    r"no aparece",
+    r"no figura",
+    r"no puedo",
+    r"no estoy",
+    r"fuera de alcance",
+    r"rechaz",
+    r"niega",
 ]
 
 PATRONES_PII_SALIDA = [
-    r"\d{9,11}",  # NIT aproximado
-    r"\+?57\s*\d{10}",  # Teléfono Colombia
+    r"\d{9,11}(?!\d)",  # NIT aproximado (9-11 dígitos, no seguidos de más dígitos)
+    r"\+?57[\s\-.]?\d{2,4}[\s\-.]?\d{3,4}[\s\-.]?\d{3,4}",  # Teléfono Colombia
     r"\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b",  # Email
 ]
 
@@ -45,8 +55,8 @@ def guardrail_entrada(texto: str) -> str | None:
         if re.search(patron, texto_lower, re.IGNORECASE):
             return "Detecté una tentativa de inyección de instrucciones. Por favor, haz una pregunta legítima sobre un DO."
 
-    # PII
-    for patron in PATRONES_PII:
+    # PII sensible
+    for patron in PATRONES_PII_ENTRADA:
         if re.search(patron, texto_lower, re.IGNORECASE):
             return "No puedo proporcionar datos sensibles del importador (NIT, teléfono, correo)."
 
@@ -54,15 +64,17 @@ def guardrail_entrada(texto: str) -> str | None:
 
 
 def guardrail_salida(texto: str) -> str:
-    """Valida que la respuesta sea segura: contiene LISTO/INCOMPLETO y sin PII."""
-    # Asegura LISTO o INCOMPLETO
-    tiene_veredicto = any(re.search(p, texto, re.IGNORECASE) for p in PATRONES_SALIDA_VALIDA)
-    if not tiene_veredicto:
-        return "⚠️  Respuesta incompleta: debe contener un dictamen LISTO o INCOMPLETO."
+    """Valida que la respuesta sea segura: contiene veredicto válido y sin PII expuesta."""
+    texto_lower = texto.lower()
 
-    # Remueve PII
+    # Asegura que hay un veredicto válido (LISTO, INCOMPLETO, o negativa válida)
+    tiene_veredicto = any(re.search(p, texto_lower, re.IGNORECASE) for p in PATRONES_SALIDA_VALIDA)
+    if not tiene_veredicto:
+        return "⚠️  Respuesta incompleta: debe contener un dictamen LISTO/INCOMPLETO, o indicar que no existe, está fuera de alcance, o no se puede procesar."
+
+    # Enmascara PII en la respuesta
     resultado = texto
     for patron in PATRONES_PII_SALIDA:
-        resultado = re.sub(patron, "[DATOS_SENSIBLES]", resultado)
+        resultado = re.sub(patron, "[DATOS_SENSIBLES]", resultado, flags=re.IGNORECASE)
 
     return resultado

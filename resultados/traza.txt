@@ -1,0 +1,92 @@
+TRAZA: Revisor de Declaraciones de Origen - DO 26-0005 (INCOMPLETO con verificador)
+
+Pregunta: Revisa el DO 26-0005 y dime si está listo para declarar
+
+======================================================================
+EJECUCIÓN DEL AGENTE REVISOR
+======================================================================
+
+[PASO 1] Llamada MCP: buscar_do
+  Entrada: {'numero': '26-0005'}
+  Salida: DO encontrado con datos:
+    - Importador: Sociedad Temporal Cinco SAS
+    - Modalidad: temporal
+    - Valor factura: $4,100.00 USD
+    - Valor DAV: $4,100.00 USD
+    - Documentos: 5 documentos listados
+
+[PASO 2] Llamada MCP: requisitos_modalidad
+  Entrada: {'modalidad': 'temporal'}
+  Salida: Requisitos para temporal:
+    - factura_comercial ✓
+    - documento_transporte ✓
+    - lista_empaque ✓
+    - dav ✓
+    - poliza_garantia (PENDIENTE ✗)
+
+[PASO 3] Análisis en revisor
+  Resultado: INCOMPLETO
+  Razón: póliza_garantia en estado "pendiente", no "cargado"
+  Valores: OK ($4,100 = $4,100)
+
+[PASO 4] LLAMADA AL SUBAGENTE VERIFICADOR
+  ├─ Tool: Agent (subagent_type: verificador)
+  ├─ Prompt: "Verifica el siguiente dictamen para el DO 26-0005:
+  │   DICTAMEN PRELIMINAR: INCOMPLETO
+  │   Razón: póliza_garantia está pendiente"
+  │
+  ├─ [Subagente llama MCP internamente]
+  │   ├─ requisitos_modalidad('temporal')
+  │   └─ listar_documentos('26-0005')
+  │
+  └─ Respuesta verificador: OK - Dictamen válido
+
+[PASO 5] SALIDA FINAL
+  DICTAMEN: INCOMPLETO
+  - poliza_garantia: pendiente
+
+======================================================================
+RESUMEN DE HERRAMIENTAS UTILIZADAS
+======================================================================
+
+1. mcp__aduana__buscar_do ✓
+2. mcp__aduana__requisitos_modalidad ✓
+3. Agent (verificador) ✓
+   └─ mcp__aduana__requisitos_modalidad (subagente)
+   └─ mcp__aduana__listar_documentos (subagente)
+
+Total de llamadas MCP (revisor + subagente): 5
+Turnos: 4 (revisor) + 1 (subagente) = 5 turnos
+Costo aproximado: $0.24 USD (incluye subagente)
+Tiempo total: ~10 segundos
+
+======================================================================
+ARQUITECTURA OBSERVADA
+======================================================================
+
+Entrada
+   ↓
+[Guardrail entrada: inyección + PII] ✓
+   ↓
+[REVISOR: Claude Haiku 4.5]
+   ├─ [MCP buscar_do] ✓
+   ├─ [MCP requisitos_modalidad] ✓
+   ├─ [Análisis local]
+   └─ [Agent VERIFICADOR]
+       ├─ [MCP requisitos_modalidad] ✓
+       └─ [MCP listar_documentos] ✓
+   ↓
+[Guardrail salida: LISTO/INCOMPLETO + enmascara PII] ✓
+   ↓
+Salida: DICTAMEN: INCOMPLETO
+
+======================================================================
+NOTAS
+======================================================================
+
+- El subagente verificador fue llamado UNA SOLA VEZ (palanca: solo para INCOMPLETO)
+- El dictamen fue validado contra documentos reales por el subagente
+- El formato de salida es fijo y predecible
+- Guardrails entrada/salida activos en ambas capas
+- Cache: no aplicado en esta corrida
+

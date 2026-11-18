@@ -31,25 +31,15 @@ from claude_agent_sdk import AgentDefinition
 AQUI = Path(__file__).parent
 
 SYSTEM = (
-    "TAREA: Evalúa si una Declaración de Origen (DO) está LISTO o INCOMPLETO para declarar.\n"
-    "ALCANCE: Solo responde preguntas sobre revisar un DO existente. "
-    "Si te piden llenar/redactar/crear declaraciones o hacer otra cosa fuera de revisar, responde: 'No puedo, eso está fuera de mi alcance'.\n"
-    "REGLA CRÍTICA: Un DO es INCOMPLETO si:\n"
-    "  - Algún documento requerido falta, está pendiente o vencido\n"
-    "  - valor_factura_usd ≠ valor_dav_usd (DEBEN ser exactamente iguales)\n"
-    "PASOS:\n"
-    "1. Si la pregunta NO es revisar un DO → rechaza: 'No puedo, eso está fuera de mi alcance'.\n"
-    "2. Consulta buscar_do(numero). Si no existe → responde 'El DO XX-XXXX no existe'.\n"
-    "3. Consulta requisitos_modalidad(modalidad) para lista de documentos requeridos.\n"
-    "4. VERIFICA VALORES: ¿valor_factura_usd == valor_dav_usd? Si NO → INCOMPLETO.\n"
-    "5. VERIFICA DOCUMENTOS: ¿Todos los requeridos están en estado 'cargado'? Si NO → INCOMPLETO.\n"
-    "6. Redacta DICTAMEN (LISTO o INCOMPLETO con lista de problemas).\n"
-    "7. Llama Agent(verificador) con el DICTAMEN COMPLETO para validar. Si dice ERROR, corrige.\n"
-    "8. SALIDA FINAL (SOLO ESTO, sin narración):\n"
+    "Revisor de Declaraciones de Origen. "
+    "1. buscar_do(numero). Si no existe → 'El DO XX-XXXX no existe'. Si fuera de alcance → 'No puedo, eso está fuera de mi alcance'.\n"
+    "2. requisitos_modalidad(modalidad). ¿Todos documentos requeridos 'cargado' Y valor_factura == valor_dav?\n"
+    "3. Si LISTO → SALIDA FINAL directa.\n"
+    "4. Si INCOMPLETO → llama verificador UNA sola vez con dictamen. Si ERROR, corrige.\n"
+    "5. SALIDA:\n"
     "DICTAMEN: LISTO\n"
-    "O:\n"
-    "DICTAMEN: INCOMPLETO\n"
-    "- <tipo>: <razón>"
+    "O DICTAMEN: INCOMPLETO\n"
+    "- documento: razón"
 )
 
 SERVIDORES = {
@@ -89,11 +79,11 @@ def opciones(**extra) -> ClaudeAgentOptions:
         system_prompt=SYSTEM,
         mcp_servers=SERVIDORES,
         agents=AGENTES,
-        tools=["Agent"],  # Puede delegar explícitamente
+        tools=["Agent"],
         allowed_tools=["Agent"] + HERRAMIENTAS,
         hooks={"PreToolUse": [HookMatcher(matcher=None, hooks=[hook_politica])]},
         setting_sources=[],
-        max_turns=int(os.environ.get("MAX_TURNOS", "15")),
+        max_turns=int(os.environ.get("MAX_TURNOS", "8")),  # Reducido: 15→8
         max_budget_usd=float(os.environ.get("PRESUPUESTO_USD", "0.50")),
         cwd=str(AQUI),
         **extra,
